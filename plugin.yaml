@@ -1,0 +1,37 @@
+name: wicked-memory
+version: 0.1.0
+description: Persistent, wallet-scoped long-term memory for Hermes agents (semantic recall, versioned history, hard delete) from the hosted Wicked Memory service.
+author: choaticpixels
+license: MIT
+homepage: https://memory.wickedapi.com
+requires_hermes: ">=0.21.5"
+tags:
+  - memory
+  - long-term-memory
+  - semantic-search
+  - wallet
+  - x402
+provides_tools:
+  - wicked_memory_remember
+  - wicked_memory_recall
+  - wicked_memory_update
+  - wicked_memory_history
+  - wicked_memory_forget
+  - wicked_memory_whoami
+provides_hooks:
+  - pre_tool_call
+python_dependencies:
+  - "eth-account>=0.13,<0.15"
+config_schema:
+  base_url:
+    type: str
+    default: https://memory.wickedapi.com
+    description: Wicked Memory service URL. Use https://memory-testnet.wickedapi.com to try it on Base Sepolia (no real money).
+  api_key:
+    type: secret
+    env: WICKED_MEMORY_API_KEY
+    description: Optional free-tier key for search. Without one the plugin uses the shared community key the service publishes (rate limited).
+  private_key:
+    type: secret
+    env: WICKED_MEMORY_PRIVATE_KEY
+    description: Optional Ethereum private key to use as the agent's identity. Without one a wallet is generated on first use and kept in the plugin's data directory.
