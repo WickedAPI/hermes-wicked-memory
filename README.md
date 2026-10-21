@@ -9,7 +9,7 @@ It is a normal tools plugin, so it works alongside Hermes' built-in memory and a
 ## Install
 
 ```
-hermes plugins install choaticpixels/hermes-wicked-memory
+hermes plugins install WickedAPI/hermes-wicked-memory
 hermes plugins enable wicked-memory
 ```
 
