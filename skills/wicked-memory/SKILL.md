@@ -53,3 +53,11 @@ cannot be undone.
 
 `wicked_memory_whoami` shows the wallet, the service and how search is paid for. A 429 means the shared
 community key is busy: retry shortly or set `WICKED_MEMORY_API_KEY`. A 402 means no key is available.
+
+## Backups and getting memory back
+
+Only when the user asks (never as part of normal remembering):
+
+- **Back up:** `wicked_memory_backup` with `action: export` writes a readable file of every memory, with history, to this plugin's backups folder. `action: restore` puts the newest (or a named) backup back, and is safe to repeat.
+- **Offline copy:** `action: mirror_on` keeps an always-current readable copy on this computer. It is unencrypted, so the user is asked to approve it; do not suggest it unless they want an offline copy. `mirror_sync` refreshes it, `mirror_off` stops it.
+- **New machine:** memories belong to the wallet. With the same wallet key (`WICKED_MEMORY_PRIVATE_KEY`) the memories are simply there. Without it, a Wicked Memory Pro key (`WICKED_MEMORY_API_KEY=wm_pro_...`) lets `wicked_memory_link` with `recover: true` move the old wallet's memories to this one (the user approves). Check with `wicked_memory_whoami`, which shows the plan.

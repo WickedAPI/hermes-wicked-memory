@@ -92,4 +92,37 @@ WHOAMI = {
     "parameters": {"type": "object", "properties": {}},
 }
 
-ALL = [REMEMBER, RECALL, UPDATE, HISTORY, FORGET, WHOAMI]
+BACKUP = {
+    "name": "wicked_memory_backup",
+    "description": (
+        "Back up, restore and mirror this agent's memories. action 'export' writes a readable backup file of every "
+        "memory (with history) to this plugin's backups folder; 'restore' re-imports a backup (the newest, or one named in "
+        "'file') into this wallet and is safe to repeat; 'mirror_on' keeps an always-current readable copy on this computer "
+        "(the user is asked to approve, because it is unencrypted); 'mirror_sync' refreshes it; 'mirror_off' stops it; "
+        "'status' lists backups and the mirror. Use it when the user asks to back up, move, restore or keep an offline "
+        "copy of the agent's memory. Never needed for normal remembering."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["export", "restore", "mirror_on", "mirror_sync", "mirror_off", "status"], "description": "What to do."},
+            "file": {"type": "string", "description": "For restore: a backup file name from 'status' (default: the newest). Never a path."},
+        },
+        "required": ["action"],
+    },
+}
+
+LINK = {
+    "name": "wicked_memory_link",
+    "description": (
+        "Wicked Memory Pro only (needs a wm_pro_ key in WICKED_MEMORY_API_KEY). Links this agent's wallet to the Pro key. "
+        "Use it after reinstalling Hermes on a new machine: with recover=true the memories of the wallet the key was "
+        "linked to before are moved to this one, so the agent gets its memory back. The user is asked to approve a recover."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"recover": {"type": "boolean", "description": "Move the memories from the previously linked wallet to this one (needs approval)."}},
+    },
+}
+
+ALL = [REMEMBER, RECALL, UPDATE, HISTORY, FORGET, WHOAMI, BACKUP, LINK]

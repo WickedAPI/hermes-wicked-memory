@@ -154,3 +154,138 @@ def test_no_credential_or_core_patching_patterns():
         text = path.read_text(encoding="utf-8")
         for pattern in forbidden:
             assert not re.search(pattern, text), f"{path.name} matches {pattern}"
+
+
+# ---- backups, mirror, Pro -----------------------------------------------------------------------
+
+def _rows():
+    base = {"tags": [], "metadata": {}, "source": None, "created_at": "2026-01-01T00:00:00Z", "valid_from": "2026-01-01T00:00:00Z"}
+    return [
+        {**base, "id": "old", "content": "v1", "valid_until": "2026-02-01T00:00:00Z", "superseded_by": "new", "updated_at": "2026-02-01T00:00:00.000001Z"},
+        {**base, "id": "new", "content": "v2", "valid_until": None, "superseded_by": None, "updated_at": "2026-02-01T00:00:00.000002Z"},
+        {**base, "id": "solo", "content": "other fact", "valid_until": None, "superseded_by": None, "updated_at": "2026-03-01T00:00:00.000000Z"},
+    ]
+
+
+def test_sort_successors_first(plugin):
+    rows = _rows()
+    order = [r["id"] for r in plugin.client.sort_successors_first(rows)]
+    assert order.index("new") < order.index("old") and sorted(order) == ["new", "old", "solo"]
+    flipped = [r["id"] for r in plugin.client.sort_successors_first(list(reversed(rows)))]
+    assert flipped.index("new") < flipped.index("old")  # whatever order the file is in
+
+
+def test_export_then_restore_round_trip(wired, service):
+    ctx, _, data_dir = wired
+    service.export_rows = _rows()
+    out = call(ctx, "wicked_memory_backup", action="export")
+    assert out["exported"] and out["memories"] == 3 and out["current"] == 2
+    path = data_dir / "backups" / out["file"]
+    lines = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()]
+    assert lines[0]["format"] == "wicked-memory-export" and [l["id"] for l in lines[1:]] == ["old", "new", "solo"]
+    assert call(ctx, "wicked_memory_backup", action="status")["backups"] == [out["file"]]
+
+    res = call(ctx, "wicked_memory_backup", action="restore")
+    assert res["restored"] and res["imported"] == 3 and res["file"] == out["file"]
+    sent = [m["id"] for batch in service.imported for m in batch]
+    assert sorted(sent) == ["new", "old", "solo"] and sent.index("new") < sent.index("old")  # successor first
+    imp = [r for r in service.requests if r["path"] == "/memories/import"][0]
+    assert "wallet" in imp  # signed like every other call
+
+
+def test_restore_only_reads_named_backups_never_paths(wired):
+    ctx, _, _ = wired
+    for bad in ("../../etc/passwd", "wallet.key", "C:/x.jsonl", "backups/../wallet.key"):
+        assert "error" in call(ctx, "wicked_memory_backup", action="restore", file=bad)
+    assert "no backup file found" in call(ctx, "wicked_memory_backup", action="restore")["error"]
+    assert "error" in call(ctx, "wicked_memory_backup", action="nonsense")
+
+
+def test_mirror_is_off_until_enabled_and_syncs_incrementally(wired, service):
+    ctx, _, data_dir = wired
+    service.export_rows = _rows()
+    assert call(ctx, "wicked_memory_backup", action="status")["mirror"]["enabled"] is False
+    assert "error" in call(ctx, "wicked_memory_backup", action="mirror_sync")  # off: nothing written
+    assert not (data_dir / "mirror").exists()
+
+    on = call(ctx, "wicked_memory_backup", action="mirror_on")
+    assert on["mirror"] == "on" and on["pulled"] == 3 and on["memories"] == 3
+    folder = next((data_dir / "mirror").iterdir())
+    kept = [json.loads(l) for l in (folder / "memories.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert sorted(m["id"] for m in kept) == ["new", "old", "solo"]
+
+    # a change on the service: one row gone, one new; the next sync pulls from the saved cursor only
+    service.export_rows.append({**_rows()[2], "id": "fresh", "content": "newer fact", "updated_at": "2026-04-01T00:00:00.000000Z"})
+    service.deletions = [{"memory_id": "solo", "deleted_at": "2026-04-02T00:00:00Z"}]
+    before = len(service.requests)
+    again = call(ctx, "wicked_memory_backup", action="mirror_sync")
+    assert again["pulled"] == 1 and again["removed"] == 1 and again["memories"] == 3
+    export_calls = [r["path"] for r in service.requests[before:] if r["path"].startswith("/memories/export")]
+    assert export_calls and "cursor=c3" in export_calls[0]
+    ids = sorted(json.loads(l)["id"] for l in (folder / "memories.jsonl").read_text(encoding="utf-8").splitlines())
+    assert ids == ["fresh", "new", "old"]
+
+    off = call(ctx, "wicked_memory_backup", action="mirror_off")
+    assert off["mirror"] == "off" and call(ctx, "wicked_memory_backup", action="status")["mirror"]["enabled"] is False
+
+
+def test_mirror_dir_setting_moves_the_copy(wired, service, tmp_path):
+    ctx, _, _ = wired
+    service.export_rows = _rows()
+    target = tmp_path / "my-synced-folder"
+    ctx.config["mirror_dir"] = str(target)
+    call(ctx, "wicked_memory_backup", action="mirror_on")
+    assert list(target.glob("wicked-memory-*/memories.jsonl"))
+
+
+def test_enabled_mirror_refreshes_on_first_use_of_a_new_process(wired, plugin, service):
+    ctx, _, data_dir = wired
+    service.export_rows = _rows()
+    call(ctx, "wicked_memory_backup", action="mirror_on")
+    service.export_rows.append({**_rows()[2], "id": "later", "content": "later fact", "updated_at": "2026-05-01T00:00:00.000000Z"})
+    ctx2 = FakeCtx(ctx.config["base_url"])
+    plugin.register(ctx2)  # a new session: the first tool call brings the mirror up to date by itself
+    call(ctx2, "wicked_memory_whoami")
+    folder = next((data_dir / "mirror").iterdir())
+    assert "later" in (folder / "memories.jsonl").read_text(encoding="utf-8")
+
+
+def test_privacy_sensitive_actions_need_approval(plugin):
+    gate = plugin.tools.forget_approval
+    on = gate("wicked_memory_backup", {"action": "mirror_on"})
+    assert on["action"] == "approve" and "UNENCRYPTED" in on["message"] and on["rule_key"] == "wicked-memory:mirror-on"
+    assert gate("wicked_memory_link", {"recover": True})["rule_key"] == "wicked-memory:link-recover"
+    for harmless in (("wicked_memory_backup", {"action": "export"}), ("wicked_memory_backup", {"action": "restore"}),
+                     ("wicked_memory_backup", {"action": "mirror_sync"}), ("wicked_memory_link", {}), ("wicked_memory_link", {"recover": False})):
+        assert gate(*harmless) is None
+
+
+def test_pro_key_links_this_wallet_on_first_use(wired, service):
+    ctx, secrets, _ = wired
+    secrets["WICKED_MEMORY_API_KEY"] = "wm_pro_" + "a" * 40
+    who = call(ctx, "wicked_memory_whoami")
+    assert who["plan"] == "pro" and "linked" in who["pro_key"]
+    link = [r for r in service.requests if r["path"] == "/v1/pro/link"][0]
+    assert {k.lower(): v for k, v in link["headers"].items()}["x-api-key"] == secrets["WICKED_MEMORY_API_KEY"]
+    assert json.loads(link["body"]) == {"move_from_previous": False} and "wallet" in link
+
+
+def test_pro_key_for_another_wallet_points_the_agent_to_recover(wired, service):
+    ctx, secrets, _ = wired
+    secrets["WICKED_MEMORY_API_KEY"] = "wm_pro_" + "b" * 40
+    service.link_response = (409, {"error": "This Pro key is linked to another wallet (0x1234...abcd) holding 12 memories. To restore them, repeat with move_from_previous.", "source": "pro"})
+    who = call(ctx, "wicked_memory_whoami")
+    assert "not linked" in who["plan"] and "holding 12 memories" in who["pro_key"]
+    out = call(ctx, "wicked_memory_link")
+    assert out["status"] == 409 and "recover=true" in out["hint"]
+    service.link_response = (200, {"data": {"plan": "pro", "linked": True, "moved": 12, "wallet": "0xabc", "searches": {"used": 1}}})
+    done = call(ctx, "wicked_memory_link", recover=True)
+    assert done["linked"] and done["memories_moved"] == 12
+    last = [r for r in service.requests if r["path"] == "/v1/pro/link"][-1]
+    assert json.loads(last["body"]) == {"move_from_previous": True}
+
+
+def test_link_without_a_pro_key_explains_itself(wired):
+    ctx, _, _ = wired
+    out = call(ctx, "wicked_memory_link")
+    assert "wm_pro_" in out["error"]

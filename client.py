@@ -170,3 +170,57 @@ class WickedMemoryClient:
     def delete(self, memory_id: str, scope: str = "chain", reason: Optional[str] = None):
         params = {"scope": scope, **({"reason": reason} if reason else {})}
         return self._call("DELETE", f"/memories/{urllib.parse.quote(memory_id, safe='')}?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
+
+    # ---- portability & Pro ---------------------------------------------------------------------
+
+    def export_page(self, cursor: Optional[str] = None, limit: int = 200, include_superseded: bool = True):
+        """One page of this wallet's memories in change order. Returns (rows, has_more, next_cursor)."""
+        params: dict = {"limit": limit, "include_superseded": "true" if include_superseded else "false"}
+        if cursor:
+            params["cursor"] = cursor
+        res = self._call("GET", "/memories/export?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
+        meta = res.get("meta") or {}
+        return res.get("data", []), bool(meta.get("has_more")), meta.get("next_cursor")
+
+    def import_batch(self, rows: list):
+        """Restore exported rows into this wallet (the service re-embeds them and skips ones it already holds)."""
+        return self._call("POST", "/memories/import", {"memories": rows})["data"]
+
+    def deletions_since(self, since_iso: Optional[str] = None, limit: int = 1000):
+        params: dict = {"limit": limit}
+        if since_iso:
+            params["since"] = since_iso
+        return self._call("GET", "/memory-deletions?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)).get("data", [])
+
+    def link_pro(self, move_from_previous: bool = False):
+        """Link this wallet to the Wicked Memory Pro key in use (and, if asked, move the memories of the wallet the
+        key was linked to before). Needs a wm_pro_ key."""
+        if not (self.api_key or "").startswith(PRO_KEY_PREFIX):
+            raise WickedMemoryError(0, "No Wicked Memory Pro key is set (WICKED_MEMORY_API_KEY must start with wm_pro_).")
+        return self._call("POST", "/v1/pro/link", {"move_from_previous": bool(move_from_previous)}, {"x-api-key": self.api_key})["data"]
+
+
+PRO_KEY_PREFIX = "wm_pro_"
+
+
+def sort_successors_first(rows: list) -> list:
+    """Order exported rows so that a version always comes after the version that replaced it, which is the order
+    the service needs to re-create the history links."""
+    by_id = {r["id"]: r for r in rows}
+    out: list = []
+    done: set = set()
+    for start in rows:
+        stack = [start]
+        # iterative walk: follow superseded_by to the head of the chain, then emit head first
+        chain = []
+        while stack:
+            r = stack.pop()
+            if r["id"] in done:
+                continue
+            done.add(r["id"])
+            chain.append(r)
+            nxt = by_id.get(r.get("superseded_by") or "")
+            if nxt is not None:
+                stack.append(nxt)
+        out.extend(reversed(chain))
+    return out

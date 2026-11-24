@@ -41,6 +41,11 @@ class FakeService:
         self.nonces: set[str] = set()
         self.status_free_tier = {"community_key": "wm_community_test"}
         self.force_status: int | None = None
+        # portability / Pro
+        self.export_rows: list[dict] = []   # what GET /memories/export serves (page size is the `limit` the client sends)
+        self.deletions: list[dict] = []
+        self.imported: list[list[dict]] = []
+        self.link_response: tuple[int, dict] = (200, {"data": {"plan": "pro", "linked": True, "moved": 0, "wallet": "0xabc", "searches": {"used": 0}}})
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -84,6 +89,22 @@ class FakeService:
                     return self._send(200, {"data": [{"id": "11111111-1111-4111-8111-111111111111", "content": "The user prefers dark mode.",
                                                       "tags": ["preferences"], "score": 0.83, "valid_from": "2026-01-01T00:00:00Z", "valid_until": None,
                                                       "metadata": {}, "source": None}]})
+                query = dict(p.split("=", 1) for p in self.path.split("?", 1)[1].split("&")) if "?" in self.path else {}
+                if self.command == "GET" and path == "/memories/export":
+                    start = int(query.get("cursor", "c0")[1:]) if query.get("cursor") else 0
+                    limit = int(query.get("limit", 200))
+                    page = outer.export_rows[start:start + limit]
+                    end = start + len(page)
+                    return self._send(200, {"data": page, "meta": {"has_more": end < len(outer.export_rows), "next_cursor": f"c{end}"}})
+                if self.command == "POST" and path == "/memories/import":
+                    outer.imported.append(data["memories"])
+                    n = len(data["memories"])
+                    return self._send(200, {"data": {"received": n, "imported": n, "skipped_existing": 0, "unlinked_versions": 0}})
+                if self.command == "GET" and path == "/memory-deletions":
+                    return self._send(200, {"data": outer.deletions})
+                if self.command == "POST" and path == "/v1/pro/link":
+                    status, payload = outer.link_response
+                    return self._send(status, payload)
                 if self.command == "PATCH":
                     return self._send(200, {"data": {"previous": {"id": "old"}, "current": {"id": "new", **data}}})
                 if self.command == "GET" and path.endswith("/history"):

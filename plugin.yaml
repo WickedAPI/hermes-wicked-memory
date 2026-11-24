@@ -18,6 +18,8 @@ provides_tools:
   - wicked_memory_history
   - wicked_memory_forget
   - wicked_memory_whoami
+  - wicked_memory_backup
+  - wicked_memory_link
 provides_hooks:
   - pre_tool_call
 python_dependencies:
@@ -30,8 +32,12 @@ config_schema:
   api_key:
     type: secret
     env: WICKED_MEMORY_API_KEY
-    description: Optional free-tier key for search. Without one the plugin uses the shared community key the service publishes (rate limited).
+    description: Optional key for search. A free key, or a Wicked Memory Pro key (wm_pro_...) for higher limits and recovery. Without one the plugin uses the shared community key the service publishes (rate limited).
   private_key:
     type: secret
     env: WICKED_MEMORY_PRIVATE_KEY
     description: Optional Ethereum private key to use as the agent's identity. Without one a wallet is generated on first use and kept in the plugin's data directory.
+  mirror_dir:
+    type: str
+    default: ""
+    description: Optional folder for the opt-in local mirror (a readable, unencrypted copy of the agent's memories). Empty keeps it inside the plugin's data directory.
