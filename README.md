@@ -66,7 +66,7 @@ Set in the Hermes plugin settings (or the environment variables shown):
 
 | Setting | Env var | Purpose |
 |---|---|---|
-| `base_url` | | Service URL. Default `https://memory.wickedapi.com`. `https://memory-testnet.wickedapi.com` is a sandbox on Base Sepolia. |
+| `base_url` | | Service URL. Default `https://memory.wickedapi.com`. |
 | `api_key` | `WICKED_MEMORY_API_KEY` | Your own key for search: a free key, or a Wicked Memory Pro key (`wm_pro_...`). Without it the shared community key is used. |
 | `mirror_dir` | | Folder for the opt-in offline mirror. Default: inside the plugin data directory. |
 | `private_key` | `WICKED_MEMORY_PRIVATE_KEY` | Bring your own Ethereum private key as the agent's identity (e.g. to use the same memories from another agent). |

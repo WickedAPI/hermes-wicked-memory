@@ -1,5 +1,5 @@
 name: wicked-memory
-version: 0.1.0
+version: 0.2.0
 description: Persistent, wallet-scoped long-term memory for Hermes agents (semantic recall, versioned history, hard delete) from the hosted Wicked Memory service.
 author: choaticpixels
 license: MIT
@@ -28,7 +28,7 @@ config_schema:
   base_url:
     type: str
     default: https://memory.wickedapi.com
-    description: Wicked Memory service URL. Use https://memory-testnet.wickedapi.com to try it on Base Sepolia (no real money).
+    description: Wicked Memory service URL.
   api_key:
     type: secret
     env: WICKED_MEMORY_API_KEY
