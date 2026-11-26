@@ -82,11 +82,21 @@ def build_auth_message(wallet: str, method: str, path: str, timestamp: str, nonc
     )
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib would resend the custom x-api-key and wallet headers to the new host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def discover_community_key(base_url: str) -> Optional[str]:
     """The service publishes a shared, rate-limited free-trial key in its public status document."""
     try:
         req = urllib.request.Request(base_url.rstrip("/") + "/v1/status", headers={"user-agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+        with _OPENER.open(req, timeout=TIMEOUT_SECONDS) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         tier = (data.get("data") or {}).get("free_tier") or {}
         return tier.get("community_key") or None
@@ -124,7 +134,7 @@ class WickedMemoryClient:
             headers["content-type"] = "application/json"
         req = urllib.request.Request(self.base_url + path, data=body or None, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+            with _OPENER.open(req, timeout=TIMEOUT_SECONDS) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", "replace")

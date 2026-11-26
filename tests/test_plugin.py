@@ -289,3 +289,43 @@ def test_link_without_a_pro_key_explains_itself(wired):
     ctx, _, _ = wired
     out = call(ctx, "wicked_memory_link")
     assert "wm_pro_" in out["error"]
+
+
+def test_keys_never_follow_a_redirect_to_another_host(plugin):
+    import http.server
+    import threading
+
+    seen: list = []
+
+    class Sink(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("x-api-key"))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        log_message = lambda *a: None
+
+    sink = http.server.HTTPServer(("127.0.0.1", 0), Sink)
+
+    class Redirector(Sink):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{sink.server_port}/steal")
+            self.end_headers()
+
+    origin = http.server.HTTPServer(("127.0.0.1", 0), Redirector)
+    for srv in (sink, origin):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        eth = pytest.importorskip("eth_account")
+        client = plugin.client.WickedMemoryClient(
+            eth.Account.create(), base_url=f"http://127.0.0.1:{origin.server_port}", api_key="SECRET")
+        with pytest.raises(plugin.client.WickedMemoryError):
+            client.search("x")
+        assert plugin.client.discover_community_key(f"http://127.0.0.1:{origin.server_port}") is None
+    finally:
+        sink.shutdown()
+        origin.shutdown()
+    assert seen == []
+
